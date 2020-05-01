@@ -4,6 +4,8 @@ use pest::Parser;
 #[grammar = "sleigh.pest"]
 pub struct SleighParser;
 
+
+
 #[cfg(test)]
 fn test_parse(s: &str, rule: Rule, do_print: bool) {
     let res = SleighParser::parse(rule, s);
@@ -32,7 +34,7 @@ fn test_qstring() {
 
 #[test]
 fn test_identifier() {
-    let parse = |s| test_parse(s, Rule::identifier, true);
+    let parse = |s| test_parse(s, Rule::identifier, false);
     parse("RAM");
 }
 
@@ -45,7 +47,7 @@ fn test_spec() {
     let mut s = String::new();
     spec.read_to_string(&mut s);
 
-    let parse = |s| test_parse(s, Rule::spec, true);
+    let parse = |s| test_parse(s, Rule::spec, false);
     parse(&s);
 }
 

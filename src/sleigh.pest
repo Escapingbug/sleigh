@@ -225,7 +225,7 @@ code_block = _{
   statements | ""
 }
 
-statements = {
+statements = _{
  statement+
 }
 

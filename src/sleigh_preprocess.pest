@@ -1,0 +1,90 @@
+
+preprocess_line = _{
+  SOI ~ (include
+  | def
+  | undef
+  | ifdef
+  | ifndef
+  | endif
+  | if_line
+  | else_line
+  | elif_line) ~ EOI
+}
+
+WHITESPACE = _{
+  WHITE_SPACE
+}
+
+string = ${
+  "\"" ~ (!("\"" | NEWLINE) ~ ANY)* ~ "\""
+}
+
+identifier = @{
+  (ASCII_ALPHA | "_" | ".") ~ (ASCII_ALPHA | "_" | "." | ASCII_DIGIT)*
+}
+
+include = {
+  "@" ~ "include" ~ string
+}
+
+def = {
+  "@" ~ "define" ~ identifier ~ string
+}
+
+undef = {
+  "@" ~ "undef" ~ identifier
+}
+
+ifdef = {
+  "@" ~ "ifdef" ~ identifier
+}
+
+ifndef = {
+  "@" ~ "ifndef" ~ identifier
+}
+
+endif = {
+  "@" ~ "endif"
+}
+
+if_line = {
+  "@" ~ "if" ~ if_expr
+}
+
+else_line = {
+  "@" ~ "else"
+}
+
+elif_line = {
+  "@" ~ "elif" ~ if_expr
+}
+
+if_expr = {
+  if_bool ~ (if_bool_op ~ if_bool)*
+}
+
+defined = {
+  "defined" ~ "(" ~ identifier ~ ")"
+}
+
+if_bool_op = {
+  "||"
+  | "&&"
+}
+
+if_bool = _{
+  if_comp ~ (if_comp_op ~ if_comp)*
+}
+
+if_comp = _{
+  defined
+  | string
+  | identifier
+  | "(" ~ if_expr ~ ")"
+}
+
+if_comp_op = {
+  "=="
+  | "!="
+}
+
