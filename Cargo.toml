@@ -1,5 +1,5 @@
 [package]
-name = "gungnir"
+name = "sleigh"
 version = "0.1.0"
 authors = ["Anciety <anciety@pku.edu.cn>"]
 edition = "2018"
