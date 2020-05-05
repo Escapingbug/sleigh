@@ -10,4 +10,5 @@ pub mod parser;
 pub mod instruction;
 pub mod ins_parser;
 pub mod preprocess;
+pub mod ast;
 pub mod compiler;
