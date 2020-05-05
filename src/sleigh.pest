@@ -475,10 +475,10 @@ expr_term = {
 }
 
 varnode = {
-  integer
-  | identifier
-  | integer ~ COLON ~ constant
+  integer ~ COLON ~ constant
   | identifier ~ COLON ~ constant
+  | integer
+  | identifier
   | AMPERSAND ~ COLON ~ constant ~ varnode
   | AMPERSAND ~ varnode
 }
