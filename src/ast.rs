@@ -1,6 +1,14 @@
 //! Sleigh language ASTs
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
+use pest::{
+    iterators::{Pairs, Pair},
+    Parser,
+};
+use crate::{
+    error::*,
+    parser::Rule,
+};
 
 /// This is the root for internal(crate-wise) usage for easy the life of implementing semantic
 /// analysis and generating InterpSetup which serves the purpose of generating AST for interpretation
@@ -332,4 +340,76 @@ pub struct Constructor {
     pub bitpat: PEquation,
     pub ctx_block: Vec<ContextStmt>,
     pub sem_body: Vec<Statement>,
+}
+
+impl RawRoot {
+
+    fn find_endian_from_pair(pair: Pair<Rule>) -> Result<Endian> {
+        for span in pair.into_inner() {
+            if span.as_rule() == Rule::endian {
+                match span.into_inner().next().unwrap().as_rule() {
+                    Rule::KEY_LITTLE => return Ok(Endian::Little),
+                    Rule::KEY_BIG => return Ok(Endian::Big),
+                    _ => {}
+                }
+            }
+        }
+
+        Err(Error::EndianNotFound)
+    }
+
+    fn handle_aligndef(pair: Pair<Rule>) -> Result<Definition> {
+        // jump over "define alignment="
+        let mut pairs = pair.into_inner();
+        pairs.next().unwrap(); // "define"
+        pairs.next().unwrap(); // "alignment"
+        pairs.next().unwrap(); // "="
+        let align = pairs
+            .next()
+            .unwrap(); // integer
+        Ok(Definition::Align(align.as_str().parse().unwrap()))
+    }
+
+    fn handle_def(pair: Pair<Rule>) -> Result<Definition> {
+        match pair.as_rule() {
+            Rule::aligndef => {
+                Self::handle_aligndef(pair)
+            },
+            _ => unimplemented!()
+        }
+    }
+
+    pub(crate) fn from_parsed(mut spec: Pairs<Rule>) -> Result<Self> {
+        //let mut defs = Vec::new();
+        let spec = &mut spec.next()
+            .ok_or(Error::EmptySpec)?
+            .into_inner();
+        let endian = Self::find_endian_from_pair(spec.next().ok_or(Error::EndianNotFound)?)?;
+        let mut defs = Vec::new();
+        for span in spec {
+            match span.as_rule() {
+                Rule::definition => {
+                    defs.push(Self::handle_def(span.into_inner().next().unwrap())?);
+                },
+                _ => {
+                    unimplemented!("rule not yet implemented")
+                }
+            }
+        }
+        unimplemented!()
+    }
+}
+
+#[test]
+fn test_raw_construct() {
+    use std::io::Read;
+    use std::fs::File;
+    use crate::parser::{SleighParser, Rule};
+
+    let mut spec = File::open("test/test.spec").unwrap();
+    let mut s = String::new();
+    spec.read_to_string(&mut s).unwrap();
+    let spec = SleighParser::parse(Rule::spec, &s).unwrap();
+
+    RawRoot::from_parsed(spec).unwrap();
 }

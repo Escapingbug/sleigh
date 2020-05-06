@@ -5,6 +5,8 @@ pub enum Error {
     UndefinedSymbol {
         symbol: String,
     },
+    EndianNotFound,
+    EmptySpec,
     InvalidExpr {
         msg: String
     },
@@ -25,6 +27,8 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Error::EndianNotFound => write!(f, "Endianness definition is not found or is not the first valid definition."),
+            Error::EmptySpec => write!(f, "Specification is empty"),
             Error::UndefinedSymbol {
                 symbol
             } => write!(f, "undefined symbol \"{}\"", symbol),

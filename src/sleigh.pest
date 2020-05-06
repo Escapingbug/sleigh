@@ -497,7 +497,6 @@ integer = {
 
 // root rule
 spec = {
-  //SOI ~ endiandef ~ (definition | constructorlike)* ~ EOI
   SOI ~ endiandef ~ (definition | constructorlike)* ~ EOI
 }
 
