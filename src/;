@@ -15,20 +15,20 @@ use crate::{
 use snailquote::unescape;
 
 macro_rules! skip {
-    ($item: ident) => {
+    $(item: ident) => {
         $item.next().unwrap();
     }
 }
 
 macro_rules! next_str {
-    ($item: ident) => {
-        $item.next().unwrap().as_str().to_string()
+    $(item: ident) => {
+        $item.next().unwrap().as_str()
     }
 }
 
-macro_rules! next_int {
-    ($item: ident) => {
-        parse_int::parse($item.next().unwrap().as_str())?
+macro_rule! next_int {
+    $(item: ident) => {
+        $item.next().unwrap().as_str().parse()
     }
 }
 
@@ -82,7 +82,7 @@ pub enum Definition {
         names: Vec<Option<String>>,
     },
     BitRange(Vec<BitRangeDef>),
-    PcodeOp(String),
+    PcodeOp(Vec<String>),
     ValueAttach {
         fields: Vec<String>,
         values: Vec<Option<i64>>,
@@ -154,7 +154,7 @@ impl FromStr for SpaceType {
         match s {
             "ram_space" => Ok(Self::RamSpace),
             "rom_space" => Ok(Self::RomSpace),
-            "register_space" => Ok(Self::RegSpace),
+            "register_space" => Self::RegSpace,
             s => Err(Error::UnknownSpace {
                 space: s.to_string()
             })
@@ -386,12 +386,12 @@ pub struct Constructor {
 
 impl RawRoot {
 
-    fn handle_endian(pair: Pair<Rule>) -> Result<Definition> {
+    fn find_endian_from_pair(pair: Pair<Rule>) -> Result<Endian> {
         for span in pair.into_inner() {
             if span.as_rule() == Rule::endian {
                 match span.into_inner().next().unwrap().as_rule() {
-                    Rule::KEY_LITTLE => return Ok(Definition::Endian(Endian::Little)),
-                    Rule::KEY_BIG => return Ok(Definition::Endian(Endian::Big)),
+                    Rule::KEY_LITTLE => return Ok(Endian::Little),
+                    Rule::KEY_BIG => return Ok(Endian::Big),
                     _ => {}
                 }
             }
@@ -414,22 +414,21 @@ impl RawRoot {
 
     fn handle_field_attr(fieldmod: Pair<Rule>) -> Result<FieldAttr> {
         let attr = fieldmod.into_inner().next().unwrap();
-        let res = match attr.as_rule() {
+        match attr.as_rule() {
             Rule::KEY_SIGNED => FieldAttr::Signed,
             Rule::KEY_DEC => FieldAttr::Dec,
             Rule::KEY_HEX => FieldAttr::Hex,
             _ => unreachable!(),
-        };
-        Ok(res)
+        }
     }
 
     fn handle_field_attrs(fieldmods: Pair<Rule>) -> Result<Vec<FieldAttr>> {
         let mut attrs = vec![];
         for fieldmod in fieldmods.into_inner() {
-            attrs.push(Self::handle_field_attr(fieldmod)?);
+            attrs.push(Self::handle_field_attr(fieldmod))?;
         }
 
-        Ok(attrs)
+        attrs
     }
 
     fn handle_fielddef(fielddef: Pair<Rule>) -> Result<Field> {
@@ -442,7 +441,6 @@ impl RawRoot {
         let from = next_int!(pairs);
         skip!(pairs); // ","
         let size = next_int!(pairs);
-        skip!(pairs); // ")"
         let attrs = Self::handle_field_attrs(pairs.next().unwrap())?;
 
         Ok(Field {
@@ -458,7 +456,7 @@ impl RawRoot {
         for span in fielddefs.into_inner() {
             fields.push(Self::handle_fielddef(span)?);
         }
-        Ok(fields)
+        fields
     }
 
     fn handle_tokendef(tokendef: Pair<Rule>) -> Result<Definition> {
@@ -469,7 +467,7 @@ impl RawRoot {
         skip!(pairs); // "define"
         skip!(pairs); // "token"
 
-        let id = next_str!(pairs);;
+        let id = pairs.next().unwrap();
 
         skip!(pairs); // "("
         let size = next_int!(pairs);
@@ -485,14 +483,13 @@ impl RawRoot {
 
     fn handle_context_attr(field_mod: Pair<Rule>) -> Result<ContextFieldAttr> {
         let field_mod = field_mod.into_inner().next().unwrap();
-        let res = match field_mod.as_rule() {
+        match field_mod.as_rule() {
             Rule::KEY_SIGNED => ContextFieldAttr::Signed,
             Rule::KEY_NOFLOW => ContextFieldAttr::NoFlow,
             Rule::KEY_HEX => ContextFieldAttr::Hex,
             Rule::KEY_DEC => ContextFieldAttr::Dec,
             _ => unreachable!()
-        };
-        Ok(res)
+        }
     }
 
     fn handle_context_attrs(field_mods: Pair<Rule>) -> Result<Vec<ContextFieldAttr>> {
@@ -500,7 +497,7 @@ impl RawRoot {
         for field_mod in field_mods.into_inner() {
             attrs.push(Self::handle_context_attr(field_mod)?);
         }
-        Ok(attrs)
+        attrs
     }
 
     fn handle_context_field(field: Pair<Rule>) -> Result<ContextField> {
@@ -512,7 +509,6 @@ impl RawRoot {
         let from = next_int!(pairs);
         skip!(pairs); // ","
         let size = next_int!(pairs);
-        skip!(pairs); // ")"
         let attrs = Self::handle_context_attrs(pairs.next().unwrap())?;
         Ok(ContextField {
             name: id,
@@ -527,7 +523,7 @@ impl RawRoot {
         for field in contextfields.into_inner() {
             fields.push(Self::handle_context_field(field)?);
         }
-        Ok(fields)
+        fields
     }
 
     fn handle_contextdef(contextdef: Pair<Rule>) -> Result<Definition> {
@@ -559,14 +555,14 @@ impl RawRoot {
         // mods
         let spacemods = pairs.next().unwrap();
         for spacemod in spacemods.into_inner() {
-            match spacemod.as_rule() {
+            match spacemod {
                 Rule::KEY_DEFAULT => { default = true; },
                 Rule::typemod => {
                     // type=TYPE
                     let mut pairs = spacemod.into_inner();
                     skip!(pairs); // "type"
                     skip!(pairs); // "="
-                    typ = SpaceType::from_str(pairs.next().unwrap().as_str())?;
+                    typ = SpaceType::from_str(next_str!(typ))?;
                 },
                 Rule::sizemod => {
                     // size=X
@@ -596,21 +592,21 @@ impl RawRoot {
     }
 
     fn handle_id_list(id_list: Pair<Rule>) -> Result<Vec<Option<String>>> {
-        let pairs = id_list.into_inner();
+        let mut pairs = id_list.into_inner();
         let mut names = vec![];
         for pair in pairs {
             match pair.as_rule() {
-                Rule::LBRACKET | Rule::RBRACKET => continue,
+                Rule::LBRACKET || Rule::RBRACKET => continue,
                 Rule::identifier => {
-                    names.push(Some(pair.as_str().to_string()));
+                    names.push(Some(pair.as_str()));
                 },
                 Rule::wildcard => {
                     names.push(None);
-                },
-                _ => unreachable!()
+                }
             }
         }
-        Ok(names)
+
+        names
     }
 
     fn handle_varnodedef(varnodedef: Pair<Rule>) -> Result<Definition> {
@@ -633,12 +629,12 @@ impl RawRoot {
         })
     }
 
-    fn handle_bitranges(bitranges: Pair<Rule>) -> Result<Vec<BitRangeDef>> {
-        let bitranges = bitranges.into_inner().next().unwrap();
+    fn handle_bitranges(bitranges: Pair<Rule>) -> Result<Definition> {
+        let mut bitranges = bitranges.into_inner().next().unwrap();
         let mut bitrangedefs = vec![];
         for bitrange in bitranges.into_inner() {
             // ID=REG[X,Y]
-            let mut pairs = bitrange.into_inner();
+            let mut pairs = bitranges.into_inner();
             let name = next_str!(pairs);
             skip!(pairs); // "="
             let reg = next_str!(pairs);
@@ -648,13 +644,13 @@ impl RawRoot {
             let size = next_int!(pairs);
 
             bitrangedefs.push(BitRangeDef {
-                name: name,
+                name, name,
                 reg: reg,
                 from: from,
                 size: size
             });
         }
-        Ok(bitrangedefs)
+        bitrangedefs
     }
 
     fn handle_bitrangedef(def: Pair<Rule>) -> Result<Definition> {
@@ -671,8 +667,8 @@ impl RawRoot {
         let mut pairs = def.into_inner();
         skip!(pairs); // "define"
         skip!(pairs); // "pcodeop"
-        let id = next_str!(pairs);
-        Ok(Definition::PcodeOp(id))
+        let id_list = Self::handle_id_list(pairs.next().unwrap())?;
+        Ok(Definition::PcodeOp(id_list))
     }
 
     fn handle_intblist(intblist: Pair<Rule>) -> Result<Vec<Option<i64>>> {
@@ -685,33 +681,20 @@ impl RawRoot {
                     let mut pairs = pair.into_inner();
                     let next = pairs.next().unwrap();
                     let val = match next.as_rule() {
-                        Rule::integer => next.as_str().parse()?,
+                        Rule::integer => next.as_str().parse(),
                         Rule::MINUS => {
-                            let val: i64 = next_int!(pairs);
+                            let val = next_int!(pairs);
                             -val
-                        },
-                        _ => unreachable!()
+                        }
                     };
                     intlist.push(Some(val));
                 },
                 Rule::UNDERSCORE => intlist.push(None),
                 _ => unreachable!(),
-            }
+            },
         }
 
-        Ok(intlist)
-    }
-
-    fn handle_fieldlist(pairs: Pair<Rule>) -> Result<Vec<String>> {
-        let mut fieldlist = vec![];
-        for pair in pairs.into_inner() {
-            match pair.as_rule() {
-                Rule::LBRACKET | Rule::RBRACKET => continue,
-                Rule::identifier => fieldlist.push(pair.as_str().to_string()),
-                _ => unreachable!()
-            }
-        }
-        Ok(fieldlist)
+        intlist
     }
 
     fn handle_valueattach(def: Pair<Rule>) -> Result<Definition> {
@@ -719,8 +702,8 @@ impl RawRoot {
         let mut pairs = def.into_inner();
         skip!(pairs); // "attach"
         skip!(pairs); // "values"
-        let fields = Self::handle_fieldlist(pairs.next().unwrap())?;
-        let values = Self::handle_intblist(pairs.next().unwrap())?;
+        let mut fields = Self::handle_id_list(pairs.next().unwrap())?;
+        let mut values = Self::handle_intblist(pairs.next().unwrap())?;
         Ok(Definition::ValueAttach {
             fields: fields,
             values: values
@@ -732,13 +715,13 @@ impl RawRoot {
         let mut pairs = def.into_inner();
         skip!(pairs); // "attach"
         skip!(pairs); // "names"
-        let fields = Self::handle_fieldlist(pairs.next().unwrap())?;
+        let fields = Self::handle_id_list(pairs.next().unwrap())?;
         let mut id_list = vec![];
         for string_or_id in pairs.next().unwrap().into_inner() {
             match string_or_id.as_rule() {
                 Rule::LBRACKET | Rule::RBRACKET => continue,
                 Rule::identifier => {
-                    id_list.push(Some(string_or_id.as_str().to_string()));
+                    id_list.push(Some(string_or_id.as_str()));
                 },
                 Rule::wildcard => {
                     id_list.push(None);
@@ -761,12 +744,12 @@ impl RawRoot {
         let mut pairs = def.into_inner();
         skip!(pairs); // "attach"
         skip!(pairs); // "variables"
-        let fields = Self::handle_fieldlist(pairs.next().unwrap())?;
-        let regs = Self::handle_id_list(pairs.next().unwrap())?;
-        Ok(Definition::VarAttach {
-            fields: fields,
-            regs: regs
-        })
+        let mut tmp = Self::handle_id_list(pairs.next().unwrap())?;
+        let mut fields = vec![];
+        for field in tmp.into_iter() {
+            fields.push(field.ok_or(Error::InvalidVarAttachField));
+        }
+        let mut regs = Self::handle_id_list(pairs)
     }
 
     fn handle_def(def: Pair<Rule>) -> Result<Definition> {
@@ -805,13 +788,12 @@ impl RawRoot {
         }
     }
 
-    #[allow(dead_code)]
     pub(crate) fn from_parsed(mut spec: Pairs<Rule>) -> Result<Self> {
         //let mut defs = Vec::new();
         let spec = &mut spec.next()
             .ok_or(Error::EmptySpec)?
             .into_inner();
-        let endian = Self::handle_endian(spec.next().ok_or(Error::EndianNotFound)?)?;
+        let endian = Self::find_endian_from_pair(spec.next().ok_or(Error::EndianNotFound)?)?;
         let mut defs = Vec::new();
         for span in spec {
             match span.as_rule() {
@@ -819,7 +801,6 @@ impl RawRoot {
                     defs.push(Self::handle_def(span.into_inner().next().unwrap())?);
                 },
                 _ => {
-                    println!("{:?}", defs);
                     unimplemented!("rule not yet implemented")
                 }
             }

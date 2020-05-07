@@ -45,7 +45,7 @@ fn test_spec() {
     use std::fs::File;
     let mut spec = File::open("test/test.spec").unwrap();
     let mut s = String::new();
-    spec.read_to_string(&mut s);
+    spec.read_to_string(&mut s).unwrap();
 
     let parse = |s| test_parse(s, Rule::spec, false);
     parse(&s);

@@ -1,12 +1,22 @@
-use std::fmt;
+use std::{
+    fmt,
+    num::ParseIntError
+};
+use snailquote::UnescapeError;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum Error {
     UndefinedSymbol {
         symbol: String,
     },
+    InvalidVarAttachField,
+    InvalidStringLiteral(UnescapeError),
     EndianNotFound,
     EmptySpec,
+    UnknownSpace {
+        space: String
+    },
+    ParseIntError(ParseIntError),
     InvalidExpr {
         msg: String
     },
@@ -27,7 +37,11 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Error::UnknownSpace { space } => write!(f, "space name {} unknown", space),
+            Error::InvalidVarAttachField => write!(f, "attach variables fields cannot be wildcard"),
+            Error::InvalidStringLiteral(e) => write!(f, "Invalid string literal {}", e),
             Error::EndianNotFound => write!(f, "Endianness definition is not found or is not the first valid definition."),
+            Error::ParseIntError(e) => write!(f, "Parse int errored with: {} This might be caused by integer constant too long, currently only 64-bit integer is supported yet", e),
             Error::EmptySpec => write!(f, "Specification is empty"),
             Error::UndefinedSymbol {
                 symbol
@@ -53,7 +67,23 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        None
+        match self {
+            Self::ParseIntError(e) => Some(e),
+            Self::InvalidStringLiteral(e) => Some(e),
+            _ => None
+        }
+    }
+}
+
+impl From<ParseIntError> for Error {
+    fn from(err: ParseIntError) -> Self {
+        Self::ParseIntError(err)
+    }
+}
+
+impl From<UnescapeError> for Error {
+    fn from(err: UnescapeError) -> Self {
+        Self::InvalidStringLiteral(err)
     }
 }
 

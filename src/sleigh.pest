@@ -579,7 +579,7 @@ spacedef = {
   KEY_DEFINE ~ KEY_SPACE ~ identifier ~ spacemods
 }
 
-spacemods = {
+spacemods = _{
   spacemod*
 }
 
@@ -594,7 +594,7 @@ typemod = {
   KEY_TYPE ~ ASSIGN ~ typ
 }
 
-typ = {
+typ = _{
   identifier
 }
 
@@ -623,19 +623,24 @@ bitrange = {
 }
 
 pcodeopdef = {
-  KEY_DEFINE ~ KEY_PCODEOP ~ identifierlist
+  KEY_DEFINE ~ KEY_PCODEOP ~ identifier
 }
 
 valueattach = {
-  KEY_ATTACH ~ KEY_VALUES ~ identifierlist ~ intblist
+  KEY_ATTACH ~ KEY_VALUES ~ fieldlist ~ intblist
 }
 
 nameattach = {
-  KEY_ATTACH ~ KEY_NAMES ~ identifierlist ~ stringoridentlist
+  KEY_ATTACH ~ KEY_NAMES ~ fieldlist ~ stringoridentlist
+}
+
+fieldlist = _{
+  LBRACKET ~ identifier+ ~ RBRACKET
+  | identifier
 }
 
 varattach = {
-  KEY_ATTACH ~ KEY_VARIABLES ~ identifierlist ~ identifierlist
+  KEY_ATTACH ~ KEY_VARIABLES ~ fieldlist ~ identifierlist
 }
 
 identifierlist = {
@@ -643,12 +648,12 @@ identifierlist = {
   | id_or_wild
 }
 
-stringoridentlist = {
+stringoridentlist = _{
   LBRACKET ~ stringorident+ ~ RBRACKET
   | stringorident
 }
 
-stringorident = {
+stringorident = _{
   id_or_wild
   | qstring
 }
@@ -658,7 +663,7 @@ intblist = {
   | neginteger
 }
 
-intbpart = {
+intbpart = _{
   neginteger
   | UNDERSCORE
 }
@@ -981,7 +986,7 @@ pexpression2_term = {
   | LPAREN ~ pexpression2 ~ RPAREN
 }
 
-id_or_wild = {
+id_or_wild = _{
   identifier
   | wildcard
 }
