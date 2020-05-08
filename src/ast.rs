@@ -770,6 +770,7 @@ impl RawRoot {
     }
 
     fn handle_def(def: Pair<Rule>) -> Result<Definition> {
+        let def = def.into_inner().next().unwrap();
         match def.as_rule() {
             Rule::aligndef => {
                 Self::handle_aligndef(def)
@@ -805,6 +806,95 @@ impl RawRoot {
         }
     }
 
+    fn handle_arguments(arguments: Pair<Rule>) -> Result<Vec<String>> {
+        let mut args = vec![];
+        if arguments.as_str().len() == 0 {
+            return Ok(args);
+        }
+
+        let oplist = arguments.into_inner().next().unwrap().into_inner();
+
+        for op in oplist {
+            match op.as_rule() {
+                Rule::identifier => args.push(op.as_str().to_string()),
+                Rule::COMMA => continue,
+                _ => unreachable!(),
+            }
+        }
+
+        Ok(args)
+    }
+
+    fn handle_lvalue(lvalue: Pair<Rule>) -> Result<LValue> {
+        unimplemented!("lvalue")
+    }
+
+    fn handle_expr(expr: Pair<Rule>) -> Result<Expr> {
+        unimplemented!("expr")
+    }
+
+    fn handle_assignment(assignment: Pair<Rule>) -> Result<Statement> {
+        let mut pairs = assignment.into_inner();
+        let next = pairs.next().unwrap();
+        if next.as_rule() == Rule::KEY_LOCAL {
+            let lvalue = Self::handle_lvalue(pairs.next().unwrap())?;
+            skip!(pairs); // "="
+            let expr = Self::handle_expr(pairs.next().unwrap())?;
+            Ok(Statement::Assignment {
+                local: true,
+                from: lvalue,
+                to: expr
+            })
+        } else {
+            let lvalue = Self::handle_lvalue(next)?;
+            skip!(pairs); // "="
+            let expr = Self::handle_expr(pairs.next().unwrap())?;
+            Ok(Statement::Assignment {
+                local: false,
+                from: lvalue,
+                to: expr
+            })
+        }
+    }
+
+    fn handle_statements(statements: Pair<Rule>) -> Result<Vec<Statement>> {
+        let mut res = vec![];
+        for statement in statements.into_inner() {
+            let stmt_kind = statement.into_inner().next().unwrap();
+            match stmt_kind.as_rule() {
+                Rule::assignment => {
+                    res.push(Self::handle_assignment(stmt_kind)?);
+                },
+                _ => unimplemented!("statements")
+            }
+        }
+
+        Ok(res)
+    }
+
+    fn handle_semanticbody(semanticbody: Pair<Rule>) -> Result<Vec<Statement>> {
+        // "{ semantic }
+        let mut pairs = semanticbody.into_inner();
+        skip!(pairs); // "{"
+        Self::handle_statements(pairs.next().unwrap())
+    }
+
+    fn handle_macrodef(macrodef: Pair<Rule>) -> Result<PcodeMacro> {
+        // "macro ID (ARGS) BODY"
+        let mut pairs = macrodef.into_inner();
+        skip!(pairs); // "macro"
+        let name = next_str!(pairs);
+        skip!(pairs); // "("
+        let args = Self::handle_arguments(pairs.next().unwrap())?;
+        skip!(pairs); // ")"
+        let body = Self::handle_semanticbody(pairs.next().unwrap())?;
+        Ok(PcodeMacro {
+            name: name,
+            args: args,
+            sem_body: body
+        })
+    }
+
     #[allow(dead_code)]
     pub(crate) fn from_parsed(mut spec: Pairs<Rule>) -> Result<Self> {
         //let mut defs = Vec::new();
@@ -813,14 +903,25 @@ impl RawRoot {
             .into_inner();
         let endian = Self::handle_endian(spec.next().ok_or(Error::EndianNotFound)?)?;
         let mut defs = Vec::new();
+        //let mut cons = Vec::new();
+        let mut macros = Vec::new();
+        //let mut withs = Vec::new();
         for span in spec {
             match span.as_rule() {
                 Rule::definition => {
-                    defs.push(Self::handle_def(span.into_inner().next().unwrap())?);
+                    defs.push(Self::handle_def(span));
+                },
+                Rule::constructorlike => {
+                    let kind = span.into_inner().next().unwrap();
+                    match kind.as_rule() {
+                        Rule::macrodef => {
+                            macros.push(Self::handle_macrodef(kind));
+                        },
+                        _ => unimplemented!("constructorlike: withblock, constructor")
+                    };
                 },
                 _ => {
-                    println!("{:?}", defs);
-                    unimplemented!("rule not yet implemented")
+                    unreachable!()
                 }
             }
         }
