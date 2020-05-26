@@ -32,6 +32,34 @@ macro_rules! next_int {
     }
 }
 
+macro_rules! expr_layer_impl {
+    ($func_name: ident, $next_func: ident, $expr_cons: path) => {
+        fn $func_name(expr: Pair<Rule>) -> Result<Expr> {
+            let mut pairs = expr.into_inner();
+            let mut lhs = Self::$next_func(pairs.next().unwrap())?;
+            loop {
+                if let Some(_) = pairs.next() {
+                    let rhs = Box::new(Self::$next_func(pairs.next().unwrap())?);
+                    lhs = $expr_cons(Box::new(lhs), rhs); 
+                } else {
+                    break;
+                }
+            }
+
+            Ok(lhs)
+        }
+    };
+}
+
+macro_rules! make_op_impl_arm {
+    ($lhs: ident, $rhs: ident)
+        macro_rules! op_impl {
+            ($rule: ident, $cons: ident) => {
+                Rule::$rule => Expr::$cons(Box::new($lhs), Box::new($rhs)),
+            }
+        };
+}
+
 // TODO Current integer cannot be more than 64-bit. Original ghidra's implementation has occupied
 // BigInteger, so it might allow arbitrary size. Also, some processor may have 128 bit constants,
 // so this is useful. It should be fixed after prototype, and we need a better strategy to switch
@@ -802,7 +830,7 @@ impl RawRoot {
             Rule::varattach => {
                 Self::handle_varattach(def)
             },
-            _ => unimplemented!()
+            _ => unreachable!()
         }
     }
 
@@ -829,9 +857,284 @@ impl RawRoot {
         unimplemented!("lvalue")
     }
 
-    fn handle_expr(expr: Pair<Rule>) -> Result<Expr> {
-        unimplemented!("expr")
+    fn handle_sizedstar(rule: Pair<Rule>) -> Result<(String, u64)> {
+        let mut pairs = rule.into_inner();
+        skip!(pairs); // "*"
+        let mut next = pairs.next();
+        if next == None {
+            // default case, use 0 to denote default size
+            return Ok(("default".to_string(), 0));
+        }
+
+        let next = next.unwrap();
+        match next.as_rule() {
+            Rule::COLON => {
+                // *:N
+                let size = next_int!(pairs);
+                return Ok(("default".to_string(), size));
+            },
+            Rule::LBRACKET => {
+                let id = next_str!(pairs);
+                skip!(pairs); // "]"
+                let next = pairs.next().unwrap(); // ":"
+                if next == None {
+                    return Ok((id, 0));
+                }
+
+                let size = next_int!(pairs);
+                return Ok((id, size));
+            },
+            _ => unreachable!()
+        }
+
+        unreachable!()
     }
+
+    fn handle_expr_operands(ops: Pair<Rule>) -> Result<Vec<Box<Expr>>> {
+        let mut pairs = ops.into_inner();
+        skip!(pairs); // "("
+        let next = pairs.next().unwrap();
+        if next.as_rule() == Rule::RPAREN {
+            return Ok(Vec::new());
+        }
+
+        let mut args = Vec::new();
+        args.push(Box::new(Self::handle_expr(next)?));
+
+        loop {
+            let next = pairs.next();
+            match next.as_rule() {
+                Rule::COMMA => continue,
+                Rule::RPAREN => break,
+                _ => args.push(Box::new(Self::handle_expr(next)?)),
+            }
+        }
+
+        Ok(args)
+    }
+
+    fn handle_expr_apply(expr: Pair<Rule>) -> Result<Expr> {
+        let mut pairs = expr.into_inner();
+        let func_name = next_str!(pairs);
+        let operands = Self::handle_expr_operands(pairs)?;
+        Ok(Expr::Apply(func_name, operands))
+    }
+
+    fn handle_sembitrange(sembitrange: Pair<Rule>) -> Result<Expr> {
+        unimplemented!("handle_sembitrange")
+    }
+
+    fn handle_varnode(varnode: Pair<Rule>) -> Result<VarnodeTerm> {
+        unimplemented!("handle_varnode")
+    }
+
+    fn handle_expr_term(expr: Pair<Rule>) -> Result<Expr> {
+        let mut pairs = expr.into_inner();
+        let next = pairs.next();
+        match next.as_rule() {
+            Rule::LPAREN => Self::handle_expr(pairs.next().unwrap()),
+            Rule::sembitrange => {
+                let (name, from, size) = Self::handle_sembitrange(next);
+                Ok(ExprTerm::SemBitRange {
+                    name: name,
+                    from: from,
+                    size: size
+                })
+            },
+            Rule::varnode => {
+                let varnode_term = Self::handle_varnode(next);
+                Ok(ExprTerm::Varnode(varnode_term))
+            },
+            _ => unreachable!()
+        }
+    }
+
+    fn handle_expr_func(expr: Pair<Rule>) -> Result<Expr> {
+        let mut inner = expr.into_inner().next().unwrap();
+        match inner.as_rule() {
+            Rule::expr_apply => {
+                Self::handle_expr_apply(inner)
+            },
+            Rule::expr_term => {
+                Self::handle_expr_term(inner)
+            },
+            _ => unreachable!(),
+        }
+    }
+
+    fn handle_expr_unary(expr: Pair<Rule>) -> Result<Expr> {
+        let mut pairs = expr.into_inner();
+        let mut next = pairs.next().unwrap();
+        match next.as_rule() {
+            Rule::EXCLAIM => {
+                Ok(Expr::BoolNot(Self::handle_expr_func(pairs.next().unwrap()))?)
+            },
+            Rule::TILDE => {
+                Ok(Expr::Not(Self::handle_expr_func(pairs.next().unwrap()))?)
+            },
+            Rule::MINUS => {
+                Ok(Expr::UnaryMinus(Self::handle_expr_func(pairs.next().unwrap()))?)
+            },
+            Rule::FMINUS => {
+                Ok(Expr::FloatUnaryMinus(Self::handle_expr_func(pairs.next().unwrap()))?)
+            },
+            Rule::sizedstar => {
+                let (space, size) = Self::handle_sizedstar(next)?;
+                Ok(Expr::SizedStar {
+                    space: space,
+                    size, size,
+                    expr: Self::handle_expr_func(pairs.next().unwrap())?
+                })
+            },
+            Rule::expr_func => {
+                Self::handle_expr_func(pairs.next().unwrap())
+            }
+        }
+    }
+
+    fn handle_expr_mult(expr: Pair<Rule>) -> Result<Expr> {
+        let mut pairs = expr.into_inner();
+        let mut lhs = Self::handle_expr_unary(pairs.next().unwrap())?;
+        loop {
+            if let Some(op) = pairs.next() {
+                let rhs = Self::handle_expr_unary(pairs.next().unwrap())?;
+                make_op_impl_arm!(lhs, rhs);
+                lhs = match op {
+                    op_impl!(ASTERISK, Mult),
+                    op_impl!(SLASH, Div),
+                    op_impl!(PERCENT, Rem),
+                    op_impl!(SDIV, SignedDiv),
+                    op_impl!(SREM, SignedRem),
+                    op_impl!(FMULT, FloatMult),
+                    op_impl!(FDIV, FloatDiv),
+                    _ => unreachable!()
+                };
+            } else {
+                break;
+            }
+        }
+
+        Ok(lhs)
+    }
+
+    fn handle_expr_add(expr: Pair<Rule>) -> Result<Expr> {
+        let mut pairs = expr.into_inner();
+        let mut lhs = Self::handle_expr_mult(pairs.next().unwrap())?;
+        loop {
+            if let Some(op) = pairs.next() {
+                let rhs = Self::handle_expr_mult(pairs.next().unwrap())?;
+                make_op_impl_arm!(lhs, rhs);
+                lhs = match op {
+                    op_impl!(PLUS, Plus),
+                    op_impl!(MINUS, Minus),
+                    op_impl!(FPLUS, FloatPlus),
+                    op_impl!(FMINUS, FloatMinus),
+                    _ => unreachable!()
+                };
+            } else {
+                break;
+            }
+        }
+
+        Ok(lhs)
+    }
+
+    fn handle_expr_shift(expr: Pair<Rule>) -> Result<Expr> {
+        let mut pairs = expr.into_inner();
+        let mut lhs = Self::handle_expr_add(pairs.next().unwrap())?;
+        loop {
+            if let Some(op) = pairs.next() {
+                let rhs = Self::handle_expr_add(pairs.next().unwrap())?;
+                make_op_impl_arm!(lhs, rhs);
+                lhs = match op {
+                    op_impl!(LEFT, LeftShift),
+                    op_impl!(RIGHT, RightShift),
+                    op_impl!(SRIGHT, SignedRightShift),
+                    _ => unreachable!()
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(lhs)
+    }
+
+    fn handle_expr_comp(expr: Pair<Rule>) -> Result<Expr> {
+        let mut pairs = expr.into_inner();
+        let mut lhs = Self::handle_expr_shift(pairs.next().unwrap())?;
+        loop {
+            if let Some(op) = pairs.next() {
+                let rhs = Self::handle_expr_shift(pairs.next().unwrap())?;
+                make_op_impl_arm!(lhs, rhs);
+                lhs = match op {
+                    op_impl!(LESS, Less),
+                    op_impl!(GREATEQUAL, GreatEqual),
+                    op_impl!(LESSEQUAL, LessEqual),
+                    op_impl!(GREAT, Great),
+                    op_impl!(SLESS, SignedLess),
+                    op_impl!(SGREATEQUAL, SignedGreatEqual),
+                    op_impl!(SLESSEQUAL, SignedLessEqual),
+                    op_impl!(SGREAT, SignedGreat),
+                    op_impl!(FLESS, FloatLess),
+                    op_impl!(FGREATEQUAL, FloatGreatEqual),
+                    op_impl!(FLESSEQUAL, FloatLessEqual),
+                    op_impl!(FGREAT, FloatGreat),
+                    _ => unreachable!()
+                };
+            } else {
+                break;
+            }
+        }
+
+        Ok(lhs);
+    }
+
+    fn handle_expr_eq(expr: Pair<Rule>) -> Result<Expr> {
+        let mut pairs = expr.into_inner();
+        let mut lhs = Self::handle_expr_comp(pairs.next().unwrap())?;
+        loop {
+            if let Some(op) = pairs.next() {
+                let rhs = Self::handle_expr_comp(pairs.next().unwrap())?;
+                lhs = match op {
+                    Rule::EQUAL => Expr::Equal(Box::new(lhs), Box::new(rhs)),
+                    Rule::NOTEQUAL => Expr::NotEqual(Box::new(lhs), Box::new(rhs)),
+                    Rule::FEQUAL => Expr::FloatEqual(Box::new(lhs), Box::new(rhs)),
+                    Rule::FNOTEQUAL => Expr::FloatNotEqual(Box::new(lhs), Box::new(rhs)),
+                    _ => unreachable!()
+                };
+            } else {
+                break;
+            }
+        }
+
+        Ok(lhs)
+    }
+
+    expr_layer_impl!(handle_expr_and, handle_expr_eq, Expr::And);
+    expr_layer_impl!(handle_expr_xor, handle_expr_and, Expr::Xor);
+    expr_layer_impl!(handle_expr_or, handle_expr_xor, Expr::Or);
+
+    fn handle_expr_booland(expr: Pair<Rule>) -> Result<Expr> {
+        let mut pairs = expr.into_inner();
+        let mut lhs = Self::handle_expr_or(pairs.next().unwrap())?;
+        loop {
+            if let Some(op) = pairs.next() {
+                let rhs = Self::handle_expr_or(pairs.next().unwrap())?;
+                lhs = match op {
+                    Rule::BOOL_AND => Expr::BoolAnd(Box::new(lhs), Box::new(rhs)),
+                    Rule::BOOL_XOR => Expr::BoolXor(Box::new(lhs), Box::new(rhs)),
+                    _ => unreachable!()
+                }
+            } else {
+                break;
+            }
+        }
+
+        Ok(lhs)
+    }
+
+    expr_layer_impl!(handle_expr, handle_expr_booland, Expr::BoolOr);
 
     fn handle_assignment(assignment: Pair<Rule>) -> Result<Statement> {
         let mut pairs = assignment.into_inner();
@@ -895,6 +1198,16 @@ impl RawRoot {
         })
     }
 
+    fn handle_withblock(mut withblock: Pair<Rule>) -> Result<WithBlock> {
+        // "with ID : BITPAT [context] { constructorlikelist }"
+        let mut pairs = withblock.into_inner();
+        skip!(pairs); // "with"
+        let name = next_str!(pairs);
+        let name = if name == "" { None } else { Some(name) };
+        skip!(pairs); // ":"
+        unimplemented!("bitpat then")
+    }
+
     #[allow(dead_code)]
     pub(crate) fn from_parsed(mut spec: Pairs<Rule>) -> Result<Self> {
         //let mut defs = Vec::new();
@@ -905,7 +1218,7 @@ impl RawRoot {
         let mut defs = Vec::new();
         //let mut cons = Vec::new();
         let mut macros = Vec::new();
-        //let mut withs = Vec::new();
+        let mut withs = Vec::new();
         for span in spec {
             match span.as_rule() {
                 Rule::definition => {
@@ -916,6 +1229,9 @@ impl RawRoot {
                     match kind.as_rule() {
                         Rule::macrodef => {
                             macros.push(Self::handle_macrodef(kind));
+                        },
+                        Rule::withblock => {
+                            withs.push(Self::handle_withblock(kind));
                         },
                         _ => unimplemented!("constructorlike: withblock, constructor")
                     };
@@ -941,4 +1257,12 @@ fn test_raw_construct() {
     let spec = SleighParser::parse(Rule::spec, &s).unwrap();
 
     RawRoot::from_parsed(spec).unwrap();
+}
+
+#[test]
+fn test_expr_contruct() {
+    use crate::parser::{SleighParser, Rule};
+    let s = "1 & 1 & 1";
+    let spec = SleighParser::parse(Rule::expr, &s).unwrap();
+    println!("{:?}", spec);
 }

@@ -333,7 +333,7 @@ export = {
   | KEY_EXPORT ~ varnode
 }
 
-expr = {
+expr = _{
   expr_boolor
 }
 
@@ -349,7 +349,7 @@ expr_booland = _{
   expr_or ~ (booland_op ~ expr_or)*
 }
 
-booland_op = {
+booland_op = _{
   BOOL_AND
   | BOOL_XOR
 }
@@ -382,7 +382,7 @@ expr_eq = _{
   expr_comp ~ (eq_op ~ expr_comp)*
 }
 
-eq_op = {
+eq_op = _{
   EQUAL
   | NOTEQUAL
   | FEQUAL
@@ -393,7 +393,7 @@ expr_comp = _{
   expr_shift ~ (compare_op ~ expr_shift)*
 }
 
-compare_op = {
+compare_op = _{
   LESS
   | GREATEQUAL
   | LESSEQUAL
@@ -412,7 +412,7 @@ expr_shift = _{
   expr_add ~ (shift_op ~ expr_add)*
 }
 
-shift_op = {
+shift_op = _{
   LEFT
   | RIGHT
   | SRIGHT
@@ -422,7 +422,7 @@ expr_add = _{
   expr_mult ~ (add_op ~ expr_mult)*
 }
 
-add_op = {
+add_op = _{
   PLUS
   | MINUS
   | FPLUS
@@ -433,7 +433,7 @@ expr_mult = _{
   expr_unary ~ (mult_op ~ expr_unary)*
 }
 
-mult_op = {
+mult_op = _{
   ASTERISK
   | SLASH
   | PERCENT
@@ -447,7 +447,7 @@ expr_unary = _{
   unary_op? ~ expr_func
 }
 
-unary_op = {
+unary_op = _{
   EXCLAIM
   | TILDE
   | MINUS
@@ -455,7 +455,7 @@ unary_op = {
   | sizedstar
 }
 
-expr_func = _{
+expr_func = {
   expr_apply
   | expr_term
 }
