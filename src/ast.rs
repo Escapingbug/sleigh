@@ -920,8 +920,16 @@ impl RawRoot {
         Ok(Expr::Apply(func_name, operands))
     }
 
-    fn handle_sembitrange(sembitrange: Pair<Rule>) -> Result<Expr> {
-        unimplemented!("handle_sembitrange")
+    fn handle_sembitrange(sembitrange: Pair<Rule>) -> Result<(String, u64, u64)> {
+        let mut pairs = sembitrange.into_inner();
+        let name = next_str!(pairs);
+        skip!(pairs); // "["
+        let from = next_int!(pairs);
+        skip!(pairs); // ":"
+        let size = next_int!(pairs);
+        skip!(pairs); // "]"
+
+        Ok((name, from, size))
     }
 
     fn handle_varnode(varnode: Pair<Rule>) -> Result<VarnodeTerm> {
